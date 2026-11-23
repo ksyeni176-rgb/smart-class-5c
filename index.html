@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMART CLASS 5C - QUICK SCAN</title>
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  font-family: Arial, sans-serif;
+  background: #f1f5fb;
+  color: #17365d;
+  margin: 0;
+}
+
+header {
+  background: #17365d;
+  color: white;
+  padding: 22px;
+  text-align: center;
+}
+
+header h2 { margin: 0 0 8px; }
+header p { margin: 0; }
+
+main {
+  max-width: 520px;
+  margin: auto;
+  padding: 16px;
+}
+
+.card {
+  background: white;
+  padding: 18px;
+  margin-bottom: 15px;
+  border-radius: 15px;
+  box-shadow: 0 3px 12px #00000010;
+}
+
+select, button {
+  width: 100%;
+  padding: 14px;
+  margin-top: 10px;
+  border: 0;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+select {
+  border: 1px solid #ccd6e5;
+  background: white;
+}
+
+button {
+  background: #17365d;
+  color: white;
+  font-weight: bold;
+}
+
+button:disabled {
+  opacity: .5;
+}
+
+#reader {
+  width: 100%;
+}
+
+#status {
+  margin-top: 15px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #e8eff8;
+  line-height: 1.5;
+  text-align: center;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h2>SMART CLASS 5C</h2>
+  <p>QUICK SCAN — Scan, Catat, Pantau!</p>
+</header>
+
+<main>
+
+<div class="card">
+  <h3>📌 Pilih Aktivitas</h3>
+
+  <select id="aktivitas">
+    <option value="">Pilih aktivitas</option>
+    <option>Kehadiran</option>
+    <option>Pengumpulan Buku Penghubung</option>
+    <option>Hari Buah</option>
+    <option>Pengumpulan Tugas</option>
+    <option>Setoran Hafalan</option>
+    <option>Pembiasaan Baik</option>
+    <option>Kegiatan Lainnya</option>
+  </select>
+</div>
+
+<div class="card">
+  <h3>📷 Pemindai QR Siswa</h3>
+
+  <div id="reader"></div>
+
+  <button id="tombolScan" onclick="mulaiScan()">
+    AKTIFKAN KAMERA
+  </button>
+
+  <div id="status">
+    Pilih aktivitas, kemudian aktifkan kamera.
+  </div>
+</div>
+
+</main>
+
+<script>
+
+const API_URL = "https://script.google.com/macros/s/AKfycbwbFE2yz9pCrR1pp7gt8zD5IlLUfLy7ci1StMBMqgP4gvJZiN-5kRdj1Qi9D3TV2hI/exec";
+
+let scanner;
+let sedangMemproses = false;
+
+function tampilStatus(pesan) {
+  document.getElementById("status").textContent = pesan;
+}
+
+function kirimData(id, aktivitas) {
+  return new Promise((resolve, reject) => {
+
+    const callback = "smartClassCallback" + Date.now();
+
+    const script = document.createElement("script");
+
+    const timeout = setTimeout(() => {
+      bersihkan();
+      reject(new Error("Waktu koneksi habis. Coba lagi."));
+    }, 15000);
+
+    function bersihkan() {
+      clearTimeout(timeout);
+      delete window[callback];
+      script.remove();
+    }
+
+    window[callback] = function(data) {
+      bersihkan();
+      resolve(data);
+    };
+
+    script.onerror = function() {
+      bersihkan();
+      reject(new Error("Gagal menghubungi server."));
+    };
+
+    script.src =
+      API_URL +
+      "?action=saveScan" +
+      "&id=" + encodeURIComponent(id) +
+      "&aktivitas=" + encodeURIComponent(aktivitas) +
+      "&callback=" + callback;
+
+    document.body.appendChild(script);
+
+  });
+}
+
+async function prosesScan(teks) {
+
+  if (sedangMemproses) return;
+
+  sedangMemproses = true;
+
+  const id = teks.trim();
+  const aktivitas = document.getElementById("aktivitas").value;
+
+  if (!/^5C\d{3}$/.test(id)) {
+    tampilStatus("❌ QR tidak valid: " + id);
+    setTimeout(() => sedangMemproses = false, 2000);
+    return;
+  }
+
+  tampilStatus("⏳ Menyimpan data " + id + "...");
+
+  try {
+
+    const hasil = await kirimData(id, aktivitas);
+
+    if (!hasil.sukses) {
+      throw new Error(hasil.pesan);
+    }
+
+    tampilStatus(
+      "✅ BERHASIL TERSIMPAN!\n" +
+      hasil.nama + "\n" +
+      aktivitas
+    );
+
+  } catch (error) {
+
+    tampilStatus("❌ " + error.message);
+
+  }
+
+  setTimeout(() => {
+    sedangMemproses = false;
+  }, 2500);
+}
+
+async function mulaiScan() {
+
+  const aktivitas = document.getElementById("aktivitas").value;
+
+  if (!aktivitas) {
+    tampilStatus("Pilih aktivitas terlebih dahulu.");
+    return;
+  }
+
+  const tombol = document.getElementById("tombolScan");
+  tombol.disabled = true;
+
+  try {
+
+    if (scanner) {
+      await scanner.clear();
+    }
+
+    scanner = new Html5Qrcode("reader");
+
+    await scanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 220, height: 220 }
+      },
+      prosesScan
+    );
+
+    tampilStatus("📷 Kamera aktif. Arahkan ke QR siswa.");
+
+  } catch (error) {
+
+    tampilStatus("Kamera gagal dibuka: " + error);
+
+  } finally {
+
+    tombol.disabled = false;
+
+  }
+}
+
+</script>
+
+</body>
+</html>
